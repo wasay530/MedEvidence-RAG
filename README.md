@@ -56,7 +56,7 @@ MedEvidence-RAG is built to answer those questions through a complete backend, r
 
 ## System Architecture
 
-![MedEvidence-RAG Architecture](https://github.com/wasay530/MedEvidence-RAG/blob/9e1afc90f2082e4fb321c675a37ecc80408a9383/docs/architecture/medevidence-rag-architecture.png)
+![MedEvidence-RAG Architecture](https://github.com/wasay530/MedEvidence-RAG/blob/40a26b6c7be416632dbc99f7e2361fbd1e33cde7/docs/architecture/medevidence_rag_system_architecture.svg)
 
 ---
 
