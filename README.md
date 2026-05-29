@@ -4,15 +4,23 @@
 
 MedEvidence-RAG is a production-oriented RAG platform designed for clinical guidelines, medical research papers, thesis documents, technical reports, and private knowledge bases. It combines document ingestion, multiple chunking strategies, dense and sparse hybrid retrieval, cross-encoder reranking, citation-grounded answer generation, and RAGAS-based evaluation.
 
-This project is designed to demonstrate production-ready LLM engineering rather than a simple notebook-based chatbot. It focuses on retrieval quality, answer faithfulness, citation grounding, latency, cost, reproducibility, and deployability.
+This project demonstrates production-ready LLM engineering with a focus on retrieval quality, answer faithfulness, citation grounding, latency, cost, reproducibility, and deployability — not a simple notebook-based chatbot.
+
+---
+
+## Status
+
+> **Current phase: MVP development (Phase 1–2 in progress)**
+>
+> Benchmark results are not yet available. All TBD values in the benchmark table will be populated after the evaluation pipeline is fully operational. Do not treat this repository as a finished system; treat it as an engineering reference with a clear, measurable roadmap.
 
 ---
 
 ## Project Summary
 
-**MedEvidence-RAG** allows users to upload research or healthcare documents and ask natural-language questions. The system retrieves the most relevant evidence chunks, reranks them, generates an answer using an LLM, and returns citations with document names, page numbers, chunk IDs, confidence, and latency.
+MedEvidence-RAG allows users to upload research or healthcare documents and ask natural-language questions. The system retrieves the most relevant evidence chunks, reranks them, generates an answer using an LLM, and returns citations with document names, page numbers, chunk IDs, confidence scores, and latency.
 
-The project also includes an evaluation pipeline to compare retrieval strategies such as dense retrieval, BM25, hybrid search, hybrid search with reranking, HyDE, and multi-query retrieval.
+The project includes a full evaluation pipeline to compare retrieval strategies — dense retrieval, BM25, hybrid search, hybrid with reranking, HyDE, and multi-query retrieval — using RAGAS and standard IR metrics.
 
 ---
 
@@ -22,12 +30,12 @@ Most RAG demos stop at uploading PDFs and asking questions. Real-world AI system
 
 A production-relevant RAG system must answer questions such as:
 
-* Which chunking strategy performs best?
-* Does hybrid search outperform dense-only retrieval?
-* Does reranking improve context precision?
-* Are generated answers faithful to the retrieved evidence?
-* What is the latency and cost per query?
-* Can the system say “insufficient evidence” instead of hallucinating?
+- Which chunking strategy performs best on clinical text?
+- Does hybrid search outperform dense-only retrieval?
+- Does reranking improve context precision at what latency cost?
+- Are generated answers faithful to the retrieved evidence?
+- What is the latency and cost per query?
+- Can the system return "insufficient evidence" instead of hallucinating?
 
 MedEvidence-RAG is built to answer those questions through a complete backend, retrieval pipeline, and benchmark framework.
 
@@ -35,22 +43,26 @@ MedEvidence-RAG is built to answer those questions through a complete backend, r
 
 ## Core Capabilities
 
-| Capability          | Description                                                                      |
-| ------------------- | -------------------------------------------------------------------------------- |
-| Document ingestion  | Upload and process PDFs, Markdown, TXT, research papers, guidelines, and reports |
-| Text extraction     | Extract, clean, normalize, and structure document text                           |
-| Chunking strategies | Fixed-size, recursive, and semantic chunking                                     |
-| Embeddings          | OpenAI embeddings and local sentence-transformer embeddings                      |
-| Vector storage      | Qdrant for dense vector search with metadata filtering                           |
-| Sparse retrieval    | BM25 keyword-based search                                                        |
-| Hybrid retrieval    | Dense + sparse retrieval with reciprocal rank fusion                             |
-| Query enhancement   | Query expansion, HyDE, and multi-query retrieval                                 |
-| Reranking           | Cross-encoder reranking for top retrieved candidates                             |
-| Answer generation   | LLM-generated responses grounded in retrieved evidence                           |
-| Citations           | Document name, page number, chunk ID, and retrieval score                        |
-| Evaluation          | RAGAS metrics, retrieval metrics, latency, and cost tracking                     |
-| API-first design    | FastAPI backend with Swagger/OpenAPI documentation                               |
-| Developer setup     | Docker Compose, `.env.example`, tests, linting, and CI/CD                        |
+| Capability | Description |
+|---|---|
+| Document ingestion | Upload and process PDFs, Markdown, TXT, research papers, guidelines, and reports |
+| Text extraction | Extract, clean, normalize, and structure document text with page metadata |
+| Chunking strategies | Fixed-size, recursive, and semantic chunking — benchmarkable independently |
+| Re-indexing | Re-chunk existing documents with a different strategy without re-uploading |
+| Embeddings | OpenAI embeddings and local sentence-transformer embeddings |
+| Vector storage | Qdrant for dense vector search with metadata filtering |
+| Sparse retrieval | BM25 with serialised index for persistence across restarts |
+| Hybrid retrieval | Dense + sparse retrieval with reciprocal rank fusion (configurable k) |
+| Query enhancement | Query expansion, HyDE, and multi-query retrieval (each cacheable) |
+| Reranking | Cross-encoder reranking for top retrieved candidates |
+| Answer generation | LLM-generated responses grounded in retrieved evidence only |
+| Structured output | Pydantic-validated generation responses with confidence, citations, and latency |
+| Hallucination guard | Structured output validation rejects responses not grounded in retrieved context |
+| Citations | Document name, page number, chunk ID, and retrieval score |
+| Evaluation | RAGAS metrics, retrieval metrics, latency, and cost tracking |
+| Observability | Structured logging and per-request tracing with correlation IDs |
+| API-first design | FastAPI backend with Swagger/OpenAPI documentation |
+| Developer setup | Docker Compose, `.env.example`, tests, linting, and CI/CD |
 
 ---
 
@@ -66,125 +78,103 @@ MedEvidence-RAG is built to answer those questions through a complete backend, r
 
 Supported input formats:
 
-* PDF research papers
-* Clinical guidelines
-* Thesis documents
-* Technical reports
-* Markdown files
-* TXT files
+- PDF research papers
+- Clinical guidelines
+- Thesis documents
+- Technical reports
+- Markdown files
+- Plain text files
 
-Documents are uploaded through the FastAPI backend and processed asynchronously.
+Documents are uploaded through the FastAPI backend and processed asynchronously via Celery. The raw extracted text is persisted in PostgreSQL, decoupled from the chunking strategy. This allows re-indexing with any chunking strategy at any time without re-uploading the original file.
 
 ---
 
 ### 2. Application & Ingestion Layer
 
-The ingestion layer handles document intake, preprocessing, and indexing preparation.
+**FastAPI backend** exposes REST endpoints for document management, querying, and evaluation. All endpoints are documented via Swagger/OpenAPI at `/docs`.
 
-Main components:
+**Document upload & metadata service** stores document-level metadata, tracks file status, assigns document IDs, and maintains source provenance throughout the pipeline.
 
-* **FastAPI Backend**
+**Celery ingestion worker** processes documents asynchronously to prevent upload requests from blocking. The worker is configured with a dead-letter queue and retry policy so that no job is silently lost if Redis restarts mid-processing.
 
-  * REST API
-  * Upload endpoints
-  * Query endpoints
-  * Evaluation endpoints
-  * Swagger/OpenAPI documentation
+**Text extraction & cleaning** extracts text from PDFs and plain documents, removes malformed characters, normalises whitespace, and preserves page-level metadata.
 
-* **Document Upload & Metadata Service**
-
-  * Stores document-level metadata
-  * Tracks file status
-  * Assigns document IDs
-  * Maintains source provenance
-
-* **Celery Ingestion Worker**
-
-  * Runs document processing asynchronously
-  * Prevents upload requests from blocking
-  * Supports scalable background processing
-
-* **Text Extraction & Cleaning**
-
-  * Extracts text from PDFs and plain documents
-  * Removes malformed characters
-  * Normalizes whitespace
-  * Preserves page-level metadata where possible
+> **Note on BM25 persistence:** The BM25 index is serialised to disk on build and reloaded on worker startup. This ensures the sparse index survives container restarts without requiring re-ingestion of all documents.
 
 ---
 
 ### 3. Chunking Layer
 
-The system supports multiple chunking strategies so retrieval performance can be benchmarked scientifically.
+The system supports three chunking strategies, each benchmarkable independently.
 
-| Strategy           | Description                                                 | Use Case                        |
-| ------------------ | ----------------------------------------------------------- | ------------------------------- |
-| Fixed chunking     | Splits text into fixed token or character windows           | Simple baseline                 |
-| Recursive chunking | Splits text using paragraph, sentence, and token boundaries | General-purpose RAG             |
-| Semantic chunking  | Splits based on semantic similarity or topic shifts         | Research and clinical documents |
+| Strategy | Description | Use case |
+|---|---|---|
+| Fixed chunking | Splits text into fixed token or character windows | Simple baseline |
+| Recursive chunking | Splits text using paragraph, sentence, and token boundaries | General-purpose RAG |
+| Semantic chunking | Splits based on semantic similarity or topic shifts | Research and clinical documents |
 
-The goal is not only to chunk documents, but to measure how each chunking method affects retrieval quality.
+Because raw extracted text is stored in PostgreSQL, documents can be re-chunked with a different strategy without re-uploading. This enables fair A/B comparison of chunking strategies on the same source material.
 
 ---
 
 ### 4. Storage & Indexing Layer
 
-MedEvidence-RAG uses separate storage systems for different responsibilities.
-
-| Storage Component | Purpose                                                            |
-| ----------------- | ------------------------------------------------------------------ |
-| Qdrant            | Dense vector embeddings and metadata filtering                     |
-| BM25 index        | Sparse keyword retrieval                                           |
-| PostgreSQL        | Document metadata, query logs, evaluation runs, experiment results |
-| Redis             | Celery queues, cache, temporary query/session state                |
+| Storage component | Purpose |
+|---|---|
+| Qdrant | Dense vector embeddings and metadata filtering (port 6333) |
+| BM25 index | Sparse keyword retrieval — serialised to disk, rebuilt on startup |
+| PostgreSQL | Raw extracted text, document metadata, query logs, evaluation runs, experiment results |
+| Redis | Celery task queue with dead-letter + retry, cache, temporary query/session state (port 6379) |
 
 ---
 
 ### 5. Query & Retrieval Pipeline
 
-The retrieval pipeline is the core of the system.
-
-Query flow:
-
-```text
+```
 User query
-→ Query normalization
+→ Query normalisation
 → Optional query expansion
-→ Optional HyDE generation
+→ Optional HyDE generation    ← LLM call; result cached per query hash to avoid duplicate cost
 → Optional multi-query generation
 → Dense vector retrieval
 → BM25 sparse retrieval
-→ Hybrid fusion
+→ Hybrid fusion (RRF, k=60 default, configurable)
 → Cross-encoder reranking
 → Top-k evidence selection
 ```
 
-Supported retrieval modes:
+**Supported retrieval modes:**
 
-| Mode                 | Description                                           |
-| -------------------- | ----------------------------------------------------- |
-| Dense only           | Vector similarity search using embeddings             |
-| BM25 only            | Sparse keyword retrieval                              |
-| Hybrid               | Dense + sparse search                                 |
-| Hybrid + Rerank      | Hybrid retrieval followed by cross-encoder reranking  |
-| HyDE + Hybrid        | Hypothetical document embedding before retrieval      |
-| Multi-query + Hybrid | Multiple reformulated queries combined before ranking |
+| Mode | Description |
+|---|---|
+| Dense only | Vector similarity search using embeddings |
+| BM25 only | Sparse keyword retrieval |
+| Hybrid | Dense + sparse with reciprocal rank fusion |
+| Hybrid + rerank | Hybrid retrieval followed by cross-encoder reranking |
+| HyDE + hybrid | Hypothetical document embedding before retrieval (cached) |
+| Multi-query + hybrid | Multiple reformulated queries combined before ranking |
+
+> **HyDE latency note:** HyDE adds one additional LLM call in the retrieval path. Results are cached by query hash. Benchmark reports break out HyDE latency separately from generation latency so comparison across strategies is fair.
+
+> **RRF tuning:** The reciprocal rank fusion constant `k` defaults to 60 and is exposed via environment variable `RRF_K`. See [Reciprocal Rank Fusion (Cormack et al., 2009)](https://dl.acm.org/doi/10.1145/1571941.1572114) for tuning guidance.
 
 ---
 
 ### 6. Generation Layer
 
-The generation layer receives the top-k evidence chunks and creates a grounded answer.
+The generation layer receives the top-k evidence chunks and creates a grounded answer using a structured output schema validated by Pydantic.
 
 The LLM is instructed to:
 
-* Use only retrieved context
-* Cite supporting chunks
-* Avoid unsupported claims
-* Return “insufficient evidence” when context is weak
-* Provide confidence and latency metadata
+- Use only retrieved context
+- Cite supporting chunks with document name, page, and chunk ID
+- Avoid unsupported claims
+- Return `"insufficient_evidence"` as the `confidence` field when context is weak
+- Provide confidence and latency metadata
 
-Example response:
+A post-generation hallucination guard validates that the returned citations exist in the retrieved set and rejects malformed or uncited responses before they reach the user.
+
+**Example response:**
 
 ```json
 {
@@ -199,7 +189,9 @@ Example response:
   ],
   "confidence": "high",
   "retrieval_strategy": "hybrid_rerank",
-  "latency_ms": 1840
+  "latency_ms": 1840,
+  "hyde_latency_ms": null,
+  "tokens_used": 1204
 }
 ```
 
@@ -207,9 +199,9 @@ Example response:
 
 ### 7. Evaluation & Benchmarking
 
-The project includes an evaluation framework to compare retrieval and generation quality.
+The evaluation pipeline requires a curated ground-truth dataset. The dataset must be built and validated before running benchmarks — RAGAS metrics are meaningless without accurate reference answers and expected evidence.
 
-Evaluation dataset format:
+**Evaluation dataset format:**
 
 ```json
 {
@@ -224,25 +216,13 @@ Evaluation dataset format:
 }
 ```
 
-Metrics:
+**Metrics:**
 
-| Metric Type | Metrics                                              |
-| ----------- | ---------------------------------------------------- |
-| Retrieval   | Recall@k, MRR, Context Precision, Context Recall     |
-| Generation  | Faithfulness, Response Relevancy, Answer Correctness |
-| System      | Latency, cost per query, token usage                 |
-
-Planned benchmark format:
-
-| Retrieval Strategy       | Context Precision | Context Recall | Faithfulness | Response Relevancy | Avg Latency |
-| ------------------------ | ----------------: | -------------: | -----------: | -----------------: | ----------: |
-| Dense only               |               TBD |            TBD |          TBD |                TBD |         TBD |
-| BM25 only                |               TBD |            TBD |          TBD |                TBD |         TBD |
-| Hybrid                   |               TBD |            TBD |          TBD |                TBD |         TBD |
-| Hybrid + Reranker        |               TBD |            TBD |          TBD |                TBD |         TBD |
-| HyDE + Hybrid + Reranker |               TBD |            TBD |          TBD |                TBD |         TBD |
-
-Benchmark values should be added only after running the evaluation pipeline.
+| Metric type | Metrics |
+|---|---|
+| Retrieval | Recall@k, MRR, Context Precision, Context Recall |
+| Generation | Faithfulness, Response Relevancy, Answer Correctness |
+| System | Latency (total, retrieval, HyDE, generation), cost per query, token usage |
 
 ---
 
@@ -250,36 +230,36 @@ Benchmark values should be added only after running the evaluation pipeline.
 
 ### Backend
 
-* Python
-* FastAPI
-* Pydantic
-* Uvicorn
-* Celery
-* Redis
-* PostgreSQL
-* SQLAlchemy
+- Python
+- FastAPI
+- Pydantic v2 (structured output validation)
+- Uvicorn
+- Celery
+- Redis
+- PostgreSQL
+- SQLAlchemy
 
 ### Retrieval & LLM
 
-* OpenAI API
-* Sentence Transformers
-* Qdrant
-* BM25
-* Cross-encoder reranker
-* RAGAS
-* Transformers
-* scikit-learn
+- OpenAI API
+- Sentence Transformers
+- Qdrant
+- BM25 (serialised index)
+- Cross-encoder reranker
+- RAGAS
+- Transformers
+- scikit-learn
 
 ### Frontend & Developer Tools
 
-* Streamlit demo UI
-* Docker
-* Docker Compose
-* GitHub Actions
-* Pytest
-* Ruff
-* Pre-commit
-* Swagger/OpenAPI
+- Streamlit demo UI
+- Docker
+- Docker Compose
+- GitHub Actions
+- Pytest
+- Ruff
+- Pre-commit
+- Swagger/OpenAPI
 
 ---
 
@@ -296,8 +276,9 @@ med-evidence-rag/
 │   │   └── routes_evaluation.py
 │   │
 │   ├── core/
-│   │   ├── config.py
-│   │   ├── logging.py
+│   │   ├── config.py           # all env vars including RRF_K, DEFAULT_TOP_K, RERANK_TOP_K
+│   │   ├── logging.py          # structured JSON logging with correlation IDs
+│   │   ├── tracing.py          # per-request trace context
 │   │   └── security.py
 │   │
 │   ├── ingestion/
@@ -312,15 +293,16 @@ med-evidence-rag/
 │   │
 │   ├── retrieval/
 │   │   ├── dense_retriever.py
-│   │   ├── bm25_retriever.py
-│   │   ├── hybrid_retriever.py
-│   │   ├── hyde.py
+│   │   ├── bm25_retriever.py   # includes serialise/load for index persistence
+│   │   ├── hybrid_retriever.py # RRF with configurable k
+│   │   ├── hyde.py             # result cached by query hash
 │   │   ├── multi_query.py
 │   │   └── reranker.py
 │   │
 │   ├── generation/
 │   │   ├── prompt_templates.py
-│   │   └── answer_generator.py
+│   │   ├── answer_generator.py
+│   │   └── hallucination_guard.py   # validates citations against retrieved set
 │   │
 │   ├── evaluation/
 │   │   ├── ragas_eval.py
@@ -328,10 +310,10 @@ med-evidence-rag/
 │   │   └── report_writer.py
 │   │
 │   ├── workers/
-│   │   └── celery_worker.py
+│   │   └── celery_worker.py    # includes dead-letter queue and retry config
 │   │
 │   └── db/
-│       ├── models.py
+│       ├── models.py           # includes raw_text column on Document model
 │       └── session.py
 │
 ├── ui/
@@ -344,11 +326,13 @@ med-evidence-rag/
 ├── tests/
 │   ├── test_chunking.py
 │   ├── test_retrieval.py
+│   ├── test_generation.py       # includes hallucination guard tests
 │   └── test_api.py
 │
 ├── data/
 │   ├── sample_docs/
 │   └── eval_sets/
+│       └── healthcare_rag_eval.json   # must be populated before running benchmarks
 │
 ├── reports/
 │   ├── retrieval_benchmark.md
@@ -374,6 +358,7 @@ POST   /documents/upload
 GET    /documents
 GET    /documents/{document_id}
 DELETE /documents/{document_id}
+POST   /documents/{document_id}/reindex    # re-chunk with a different strategy
 ```
 
 ### Query APIs
@@ -414,7 +399,7 @@ GET  /evaluate/report
 
 ```json
 {
-  "answer": "Federated learning preserves privacy by keeping raw data on local clients and sharing model updates instead of centralizing sensitive data.",
+  "answer": "Federated learning preserves privacy by keeping raw data on local clients and sharing model updates instead of centralising sensitive data.",
   "citations": [
     {
       "document_name": "federated_learning_healthcare.pdf",
@@ -425,7 +410,9 @@ GET  /evaluate/report
   ],
   "confidence": "high",
   "retrieval_strategy": "hybrid_rerank",
-  "latency_ms": 1840
+  "latency_ms": 1840,
+  "hyde_latency_ms": null,
+  "tokens_used": 1204
 }
 ```
 
@@ -455,6 +442,10 @@ REDIS_URL=redis://redis:6379/0
 QDRANT_URL=http://qdrant:6333
 EMBEDDING_PROVIDER=openai
 LLM_PROVIDER=openai
+DEFAULT_TOP_K=20
+RERANK_TOP_K=5
+RRF_K=60
+LOG_LEVEL=INFO
 ```
 
 ### 3. Start services
@@ -465,13 +456,13 @@ docker compose up --build
 
 ### 4. Open the API docs
 
-```text
+```
 http://localhost:8000/docs
 ```
 
 ### 5. Open the Streamlit demo
 
-```text
+```
 http://localhost:8501
 ```
 
@@ -522,6 +513,8 @@ ruff format .
 
 ## Running Evaluation
 
+> Before running evaluation, populate `data/eval_sets/healthcare_rag_eval.json` with ground-truth question/answer/evidence triples relevant to your document set. Benchmark scores are meaningless without a validated dataset.
+
 ```bash
 python -m app.evaluation.benchmark_runner \
   --dataset data/eval_sets/healthcare_rag_eval.json \
@@ -541,106 +534,125 @@ python -m app.evaluation.report_writer \
 
 ## Docker Services
 
-| Service     | Purpose                          |
-| ----------- | -------------------------------- |
-| `api`       | FastAPI backend                  |
-| `worker`    | Celery ingestion worker          |
-| `redis`     | Queue and cache                  |
-| `postgres`  | Metadata and experiment database |
-| `qdrant`    | Vector database                  |
-| `streamlit` | Demo UI                          |
+| Service | Purpose |
+|---|---|
+| `api` | FastAPI backend (port 8000) |
+| `worker` | Celery ingestion worker with dead-letter queue |
+| `redis` | Queue broker and cache (port 6379) |
+| `postgres` | Metadata, raw text, and experiment database |
+| `qdrant` | Vector database (port 6333) |
+| `streamlit` | Demo UI (port 8501) |
 
 ---
 
 ## Environment Variables
 
-| Variable             | Description                                 |
-| -------------------- | ------------------------------------------- |
-| `OPENAI_API_KEY`     | API key for OpenAI models                   |
-| `DATABASE_URL`       | PostgreSQL connection URL                   |
-| `REDIS_URL`          | Redis connection URL                        |
-| `QDRANT_URL`         | Qdrant service URL                          |
-| `EMBEDDING_PROVIDER` | `openai` or `sentence_transformers`         |
-| `LLM_PROVIDER`       | LLM provider name                           |
-| `DEFAULT_TOP_K`      | Number of chunks retrieved before reranking |
-| `RERANK_TOP_K`       | Number of chunks kept after reranking       |
-| `LOG_LEVEL`          | Logging level                               |
+| Variable | Description |
+|---|---|
+| `OPENAI_API_KEY` | API key for OpenAI models |
+| `DATABASE_URL` | PostgreSQL connection URL |
+| `REDIS_URL` | Redis connection URL |
+| `QDRANT_URL` | Qdrant service URL |
+| `EMBEDDING_PROVIDER` | `openai` or `sentence_transformers` |
+| `LLM_PROVIDER` | LLM provider name |
+| `DEFAULT_TOP_K` | Number of chunks retrieved before reranking (default: 20) |
+| `RERANK_TOP_K` | Number of chunks kept after reranking (default: 5) |
+| `RRF_K` | Reciprocal rank fusion constant (default: 60) |
+| `LOG_LEVEL` | Logging level (default: INFO) |
+
+---
+
+## Known Limitations & Design Decisions
+
+| Area | Decision | Rationale |
+|---|---|---|
+| Authentication | Not yet implemented | Planned for Phase 4; do not expose this service publicly until complete |
+| BM25 persistence | Serialised to disk, rebuilt on startup | rank-bm25 is in-memory only; serialisation prevents data loss on restart |
+| HyDE caching | Results cached by query hash | HyDE doubles per-query LLM cost; caching prevents duplicate calls in evaluation loops |
+| RRF constant | Configurable via `RRF_K` env var (default 60) | Cormack et al. recommend 60 as a robust default; expose for ablation studies |
+| Ground-truth dataset | Not included | Domain-specific medical QA annotation requires expert review; a sample template is provided |
+| Rate limiting | Not yet implemented | Planned for Phase 4 |
+| Distributed tracing | Correlation IDs on every request | Full distributed tracing (OpenTelemetry) planned for Phase 4 |
 
 ---
 
 ## Roadmap
 
-### Phase 1 — MVP RAG Backend
+### Phase 1 — MVP RAG backend
 
-* [ ] FastAPI application setup
-* [ ] PDF upload endpoint
-* [ ] Text extraction pipeline
-* [ ] Fixed and recursive chunking
-* [ ] OpenAI embeddings
-* [ ] Qdrant vector indexing
-* [ ] Basic citation-grounded query endpoint
-* [ ] Docker Compose setup
+- [ ] FastAPI application setup
+- [ ] PDF upload endpoint
+- [ ] Text extraction pipeline with raw text persistence
+- [ ] Fixed and recursive chunking
+- [ ] Re-indexing endpoint (re-chunk without re-upload)
+- [ ] OpenAI embeddings
+- [ ] Qdrant vector indexing
+- [ ] Basic citation-grounded query endpoint
+- [ ] Pydantic-validated structured output
+- [ ] Hallucination guard on generation output
+- [ ] Structured JSON logging with correlation IDs
+- [ ] Docker Compose setup
 
-### Phase 2 — Advanced Retrieval
+### Phase 2 — Advanced retrieval
 
-* [ ] BM25 sparse retrieval
-* [ ] Hybrid retrieval
-* [ ] Reciprocal rank fusion
-* [ ] Cross-encoder reranking
-* [ ] Query expansion
-* [ ] HyDE retrieval
-* [ ] Multi-query retrieval
+- [ ] BM25 sparse retrieval with serialised index persistence
+- [ ] Hybrid retrieval with configurable RRF (k exposed via env)
+- [ ] Cross-encoder reranking
+- [ ] Query expansion
+- [ ] HyDE retrieval with per-query caching
+- [ ] Multi-query retrieval
 
 ### Phase 3 — Evaluation
 
-* [ ] Evaluation dataset
-* [ ] RAGAS integration
-* [ ] Retrieval metrics
-* [ ] Generation metrics
-* [ ] Benchmark report generation
-* [ ] README benchmark table
+- [ ] Ground-truth evaluation dataset (healthcare domain)
+- [ ] RAGAS integration
+- [ ] Retrieval metrics (Recall@k, MRR, Context Precision, Context Recall)
+- [ ] Generation metrics (Faithfulness, Response Relevancy, Answer Correctness)
+- [ ] Per-strategy latency breakdown (retrieval vs HyDE vs generation)
+- [ ] Benchmark report generation
+- [ ] README benchmark table populated with real numbers
 
-### Phase 4 — Production Improvements
+### Phase 4 — Production hardening
 
-* [ ] Authentication
-* [ ] Rate limiting
-* [ ] Structured logging
-* [ ] Query tracing
-* [ ] Cost tracking
-* [ ] CI/CD pipeline
-* [ ] Deployment guide
+- [ ] Authentication and authorisation
+- [ ] Rate limiting
+- [ ] OpenTelemetry distributed tracing
+- [ ] Cost tracking dashboard
+- [ ] CI/CD pipeline with staging environment
+- [ ] Deployment guide (cloud and on-premise)
 
 ---
 
 ## Example Use Cases
 
-* Healthcare literature question answering
-* Clinical guideline search
-* Research paper summarization
-* Thesis and technical report exploration
-* Private document Q&A
-* Evidence-grounded academic assistant
-* RAG evaluation benchmarking
+- Healthcare literature question answering
+- Clinical guideline search
+- Research paper summarisation
+- Thesis and technical report exploration
+- Private document Q&A
+- Evidence-grounded academic assistant
+- RAG evaluation benchmarking
 
 ---
 
 ## What Makes This Project Different
 
-MedEvidence-RAG is not only a chatbot over PDFs.
+MedEvidence-RAG is not a chatbot over PDFs.
 
 It is designed to show:
 
-1. **Retrieval engineering** through dense, sparse, hybrid, and reranked search.
-2. **Evaluation discipline** through RAGAS and retrieval metrics.
-3. **Production mindset** through FastAPI, Docker, Celery, Redis, Qdrant, and PostgreSQL.
-4. **Healthcare/research relevance** through evidence-grounded answers and citation-first design.
-5. **Portfolio strength** through measurable benchmark results rather than vague claims.
+1. **Retrieval engineering** through dense, sparse, hybrid, and reranked search with configurable, tunable parameters.
+2. **Evaluation discipline** through RAGAS and IR metrics applied to a validated ground-truth dataset.
+3. **Production mindset** through FastAPI, Docker, Celery with dead-letter queues, BM25 index persistence, and structured logging.
+4. **Healthcare/research relevance** through evidence-grounded answers, citation-first design, and a hallucination guard.
+5. **Reproducibility** through re-indexing support, configurable RRF, and separated latency reporting per pipeline stage.
+6. **Portfolio strength** through measurable benchmark results — not vague claims.
 
 ---
 
 ## Suggested GitHub Topics
 
-```text
+```
 rag
 llm
 fastapi
@@ -668,7 +680,7 @@ This project is released under the MIT License.
 
 ## Author
 
-**Abdul Wasay Sardar**
+**Abdul Wasay Sardar**  
 ML & AI Engineer | Software Engineer | Researcher
 
 This project connects backend production engineering with applied AI research in healthcare, NLP, and privacy-preserving machine learning.
